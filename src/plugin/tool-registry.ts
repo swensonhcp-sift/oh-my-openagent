@@ -25,6 +25,7 @@ import {
   createTaskList,
   createTaskUpdateTool,
   createHashlineEditTool,
+  createBeadsTools,
 } from "../tools"
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { filterDisabledTools } from "../shared/disabled-tools"
@@ -129,6 +130,11 @@ export function createToolRegistry(args: {
     ? { edit: createHashlineEditTool() }
     : {}
 
+  const beadsEnabled = pluginConfig.beads?.enabled ?? false
+  const beadsToolsRecord: Record<string, ToolDefinition> = beadsEnabled
+    ? createBeadsTools({ config: pluginConfig.beads!, ctx })
+    : {}
+
   const allTools: Record<string, ToolDefinition> = {
     ...builtinTools,
     ...createGrepTools(ctx),
@@ -144,6 +150,7 @@ export function createToolRegistry(args: {
     interactive_bash,
     ...taskToolsRecord,
     ...hashlineToolsRecord,
+    ...beadsToolsRecord,
   }
 
   for (const toolDefinition of Object.values(allTools)) {
