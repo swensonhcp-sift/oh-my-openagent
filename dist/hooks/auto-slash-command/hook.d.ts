@@ -1,0 +1,11 @@
+import type { AutoSlashCommandHookInput, AutoSlashCommandHookOutput, CommandExecuteBeforeInput, CommandExecuteBeforeOutput } from "./types";
+import type { LoadedSkill } from "../../features/opencode-skill-loader";
+export interface AutoSlashCommandHookOptions {
+    skills?: LoadedSkill[];
+    pluginsEnabled?: boolean;
+    enabledPluginsOverride?: Record<string, boolean>;
+}
+export declare function createAutoSlashCommandHook(options?: AutoSlashCommandHookOptions): {
+    "chat.message": (input: AutoSlashCommandHookInput, output: AutoSlashCommandHookOutput) => Promise<void>;
+    "command.execute.before": (input: CommandExecuteBeforeInput, output: CommandExecuteBeforeOutput) => Promise<void>;
+};

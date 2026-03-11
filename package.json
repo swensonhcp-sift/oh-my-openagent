@@ -67,7 +67,7 @@
     "picocolors": "^1.1.1",
     "picomatch": "^4.0.2",
     "vscode-jsonrpc": "^8.2.0",
-    "zod": "^4.1.8"
+    "zod": "4.3.5"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
@@ -89,7 +89,8 @@
     "oh-my-opencode-windows-x64-baseline": "3.11.0"
   },
   "overrides": {
-    "@opencode-ai/sdk": "^1.2.24"
+    "@opencode-ai/sdk": "^1.2.24",
+    "zod": "4.3.5"
   },
   "trustedDependencies": [
     "@ast-grep/cli",

@@ -4,7 +4,7 @@
 node_modules/
 
 # Build output
-dist/
+# dist/ intentionally committed for direct GitHub installs (zod v4 build workaround)
 
 # Platform binaries (built, not committed)
 packages/*/bin/oh-my-opencode
