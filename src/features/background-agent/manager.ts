@@ -110,6 +110,7 @@ export class BackgroundManager {
   private queuesByKey: Map<string, QueueItem[]> = new Map()
   private processingKeys: Set<string> = new Set()
   private completionTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
+  private completedTaskSummaries: Map<string, Array<{id: string, description: string}>> = new Map()
   private idleDeferralTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private notificationQueueByParent: Map<string, Promise<void>> = new Map()
   private enableParentSessionNotifications: boolean
@@ -1293,6 +1294,14 @@ export class BackgroundManager {
       })
     }
 
+    if (!this.completedTaskSummaries.has(task.parentSessionID)) {
+      this.completedTaskSummaries.set(task.parentSessionID, [])
+    }
+    this.completedTaskSummaries.get(task.parentSessionID)!.push({
+      id: task.id,
+      description: task.description,
+    })
+
     // Update pending tracking and check if all tasks complete
     const pendingSet = this.pendingByParent.get(task.parentSessionID)
     let allComplete = false
@@ -1309,9 +1318,12 @@ export class BackgroundManager {
     }
 
     const completedTasks = allComplete
-      ? Array.from(this.tasks.values())
-        .filter(t => t.parentSessionID === task.parentSessionID && t.status !== "running" && t.status !== "pending")
+      ? (this.completedTaskSummaries.get(task.parentSessionID) ?? [{ id: task.id, description: task.description }])
       : []
+
+    if (allComplete) {
+      this.completedTaskSummaries.delete(task.parentSessionID)
+    }
 
     const statusText = task.status === "completed" ? "COMPLETED" : task.status === "interrupt" ? "INTERRUPTED" : "CANCELLED"
     const errorInfo = task.error ? `\n**Error:** ${task.error}` : ""
@@ -1662,6 +1674,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
     this.queuesByKey.clear()
     this.processingKeys.clear()
     this.taskHistory.clearAll()
+    this.completedTaskSummaries.clear()
     this.unregisterProcessCleanup()
     log("[background-agent] Shutdown complete")
 
