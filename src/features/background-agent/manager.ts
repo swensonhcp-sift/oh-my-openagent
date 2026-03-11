@@ -1064,6 +1064,7 @@ export class BackgroundManager {
     if (!parentSessionID) return
     if (this.getTasksByParentSession(parentSessionID).length > 0) return
     this.taskHistory.clearSession(parentSessionID)
+    this.completedTaskSummaries.delete(parentSessionID)
   }
 
   private scheduleTaskRemoval(taskId: string): void {
@@ -1076,9 +1077,11 @@ export class BackgroundManager {
     const timer = setTimeout(() => {
       this.completionTimers.delete(taskId)
       if (this.tasks.has(taskId)) {
+        const task = this.tasks.get(taskId)
         this.clearNotificationsForTask(taskId)
         this.tasks.delete(taskId)
         log("[background-agent] Removed completed task from memory:", taskId)
+        this.clearTaskHistoryWhenParentTasksGone(task?.parentSessionID)
       }
     }, TASK_CLEANUP_DELAY_MS)
 
@@ -1457,9 +1460,11 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
       const timer = setTimeout(() => {
         this.completionTimers.delete(taskId)
         if (this.tasks.has(taskId)) {
+          const task = this.tasks.get(taskId)
           this.clearNotificationsForTask(taskId)
           this.tasks.delete(taskId)
           log("[background-agent] Removed completed task from memory:", taskId)
+          this.clearTaskHistoryWhenParentTasksGone(task?.parentSessionID)
         }
       }, TASK_CLEANUP_DELAY_MS)
 
