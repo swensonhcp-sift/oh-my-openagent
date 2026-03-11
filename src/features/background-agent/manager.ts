@@ -813,6 +813,7 @@ export class BackgroundManager {
 
       this.cleanupPendingByParent(task)
       this.tasks.delete(task.id)
+      this.clearTaskHistoryWhenParentTasksGone(task.parentSessionID)
       this.clearNotificationsForTask(task.id)
       const toastManager = getTaskToastManager()
       if (toastManager) {
@@ -839,9 +840,16 @@ export class BackgroundManager {
 
       this.pendingNotifications.delete(sessionID)
 
-      if (tasksToCancel.size === 0) return
+      if (tasksToCancel.size === 0) {
+        this.clearTaskHistoryWhenParentTasksGone(sessionID)
+        return
+      }
+
+      const parentSessionsToClear = new Set<string>()
 
       for (const task of tasksToCancel.values()) {
+        parentSessionsToClear.add(task.parentSessionID)
+
         if (task.status === "running" || task.status === "pending") {
           void this.cancelTask(task.id, {
             source: "session.deleted",
@@ -880,6 +888,10 @@ export class BackgroundManager {
         if (task.parentSessionID) {
           this.pendingNotifications.delete(task.parentSessionID)
         }
+      }
+
+      for (const parentSessionID of parentSessionsToClear) {
+        this.clearTaskHistoryWhenParentTasksGone(parentSessionID)
       }
 
       SessionCategoryRegistry.remove(sessionID)
@@ -1047,6 +1059,31 @@ export class BackgroundManager {
     }
   }
 
+  private clearTaskHistoryWhenParentTasksGone(parentSessionID: string | undefined): void {
+    if (!parentSessionID) return
+    if (this.getTasksByParentSession(parentSessionID).length > 0) return
+    this.taskHistory.clearSession(parentSessionID)
+  }
+
+  private scheduleTaskRemoval(taskId: string): void {
+    const existingTimer = this.completionTimers.get(taskId)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+      this.completionTimers.delete(taskId)
+    }
+
+    const timer = setTimeout(() => {
+      this.completionTimers.delete(taskId)
+      if (this.tasks.has(taskId)) {
+        this.clearNotificationsForTask(taskId)
+        this.tasks.delete(taskId)
+        log("[background-agent] Removed completed task from memory:", taskId)
+      }
+    }, TASK_CLEANUP_DELAY_MS)
+
+    this.completionTimers.set(taskId, timer)
+  }
+
   async cancelTask(
     taskId: string,
     options?: { source?: string; reason?: string; abortSession?: boolean; skipNotification?: boolean }
@@ -1114,6 +1151,7 @@ export class BackgroundManager {
     removeTaskToastTracking(task.id)
 
     if (options?.skipNotification) {
+      this.scheduleTaskRemoval(task.id)
       log(`[background-agent] Task cancelled via ${source} (notification skipped):`, task.id)
       return true
     }
@@ -1396,24 +1434,24 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
         })
       }
 
-    if (allComplete) {
-      for (const completedTask of completedTasks) {
-        const taskId = completedTask.id
-        const existingTimer = this.completionTimers.get(taskId)
-        if (existingTimer) {
-          clearTimeout(existingTimer)
-          this.completionTimers.delete(taskId)
-        }
-        const timer = setTimeout(() => {
-          this.completionTimers.delete(taskId)
-          if (this.tasks.has(taskId)) {
-            this.clearNotificationsForTask(taskId)
-            this.tasks.delete(taskId)
-            log("[background-agent] Removed completed task from memory:", taskId)
-          }
-        }, TASK_CLEANUP_DELAY_MS)
-        this.completionTimers.set(taskId, timer)
+    if (task.status !== "running" && task.status !== "pending") {
+      const taskId = task.id
+      const existingTimer = this.completionTimers.get(taskId)
+      if (existingTimer) {
+        clearTimeout(existingTimer)
+        this.completionTimers.delete(taskId)
       }
+
+      const timer = setTimeout(() => {
+        this.completionTimers.delete(taskId)
+        if (this.tasks.has(taskId)) {
+          this.clearNotificationsForTask(taskId)
+          this.tasks.delete(taskId)
+          log("[background-agent] Removed completed task from memory:", taskId)
+        }
+      }, TASK_CLEANUP_DELAY_MS)
+
+      this.completionTimers.set(taskId, timer)
     }
   }
 
@@ -1469,6 +1507,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
           toastManager.removeTask(taskId)
         }
         this.tasks.delete(taskId)
+        this.clearTaskHistoryWhenParentTasksGone(task.parentSessionID)
         if (task.sessionID) {
           subagentSessions.delete(task.sessionID)
           SessionCategoryRegistry.remove(task.sessionID)
@@ -1622,6 +1661,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
     this.notificationQueueByParent.clear()
     this.queuesByKey.clear()
     this.processingKeys.clear()
+    this.taskHistory.clearAll()
     this.unregisterProcessCleanup()
     log("[background-agent] Shutdown complete")
 
