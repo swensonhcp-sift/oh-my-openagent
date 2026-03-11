@@ -1,5 +1,6 @@
 import type { CallOmoAgentArgs } from "./types"
 import type { PluginInput } from "@opencode-ai/plugin"
+import { subagentSessions, syncSubagentSessions } from "../../features/claude-code-session-state"
 import { log } from "../../shared"
 import type { FallbackEntry } from "../../shared/model-requirements"
 import { getAgentToolRestrictions } from "../../shared"
@@ -39,48 +40,60 @@ export async function executeSync(
   deps: ExecuteSyncDeps = defaultDeps,
   fallbackChain?: FallbackEntry[],
 ): Promise<string> {
-  const { sessionID } = await deps.createOrGetSession(args, toolContext, ctx)
-
-  if (fallbackChain && fallbackChain.length > 0) {
-    deps.setSessionFallbackChain(sessionID, fallbackChain)
-  }
-
-  await toolContext.metadata?.({
-    title: args.description,
-    metadata: { sessionId: sessionID },
-  })
-
-  log(`[call_omo_agent] Sending prompt to session ${sessionID}`)
-  log(`[call_omo_agent] Prompt text:`, args.prompt.substring(0, 100))
+  let sessionID: string | undefined
 
   try {
-    await (ctx.client.session as unknown as SessionWithPromptAsync).promptAsync({
-      path: { id: sessionID },
-      body: {
-        agent: args.subagent_type,
-        tools: {
-          ...getAgentToolRestrictions(args.subagent_type),
-          task: false,
-          question: false,
-        },
-        parts: [{ type: "text", text: args.prompt }],
-      },
-    })
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    log(`[call_omo_agent] Prompt error:`, errorMessage)
-    if (errorMessage.includes("agent.name") || errorMessage.includes("undefined")) {
-      return `Error: Agent "${args.subagent_type}" not found. Make sure the agent is registered in your opencode.json or provided by a plugin.\n\n<task_metadata>\nsession_id: ${sessionID}\n</task_metadata>`
+    const sessionResult = await deps.createOrGetSession(args, toolContext, ctx)
+    sessionID = sessionResult.sessionID
+
+    if (fallbackChain && fallbackChain.length > 0) {
+      deps.setSessionFallbackChain(sessionID, fallbackChain)
     }
-    return `Error: Failed to send prompt: ${errorMessage}\n\n<task_metadata>\nsession_id: ${sessionID}\n</task_metadata>`
+
+    await Promise.resolve(
+      toolContext.metadata?.({
+        title: args.description,
+        metadata: { sessionId: sessionID },
+      })
+    )
+
+    log(`[call_omo_agent] Sending prompt to session ${sessionID}`)
+    log(`[call_omo_agent] Prompt text:`, args.prompt.substring(0, 100))
+
+    try {
+      await (ctx.client.session as unknown as SessionWithPromptAsync).promptAsync({
+        path: { id: sessionID },
+        body: {
+          agent: args.subagent_type,
+          tools: {
+            ...getAgentToolRestrictions(args.subagent_type),
+            task: false,
+            question: false,
+          },
+          parts: [{ type: "text", text: args.prompt }],
+        },
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      log(`[call_omo_agent] Prompt error:`, errorMessage)
+      if (errorMessage.includes("agent.name") || errorMessage.includes("undefined")) {
+        return `Error: Agent "${args.subagent_type}" not found. Make sure the agent is registered in your opencode.json or provided by a plugin.\n\n<task_metadata>\nsession_id: ${sessionID}\n</task_metadata>`
+      }
+      return `Error: Failed to send prompt: ${errorMessage}\n\n<task_metadata>\nsession_id: ${sessionID}\n</task_metadata>`
+    }
+
+    await deps.waitForCompletion(sessionID, toolContext, ctx)
+
+    const responseText = await deps.processMessages(sessionID, ctx)
+
+    const output =
+      responseText + "\n\n" + ["<task_metadata>", `session_id: ${sessionID}`, "</task_metadata>"].join("\n")
+
+    return output
+  } finally {
+    if (sessionID) {
+      subagentSessions.delete(sessionID)
+      syncSubagentSessions.delete(sessionID)
+    }
   }
-
-  await deps.waitForCompletion(sessionID, toolContext, ctx)
-
-  const responseText = await deps.processMessages(sessionID, ctx)
-
-  const output =
-    responseText + "\n\n" + ["<task_metadata>", `session_id: ${sessionID}`, "</task_metadata>"].join("\n")
-
-  return output
 }
